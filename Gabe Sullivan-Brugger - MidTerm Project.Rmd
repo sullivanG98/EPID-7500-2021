@@ -1,0 +1,898 @@
+---
+title: Midterm Project
+output:
+  html_document: default
+  pdf_document: default
+---
+
+```{r packages, echo=FALSE}
+pacman::p_load(
+  dplyr,
+  tidyverse,      # includes ggplot2 and other
+  rio,            # import/export
+  here,           # file locator
+  stringr,        # working with characters   
+  scales,         # transform numbers
+  ggrepel,        # smartly-placed labels
+  gghighlight,    # highlight one part of plot
+  RColorBrewer,   # color scales
+  lubridate,      # working with dates/epiweeks
+  aweek,          # alternative package for working with dates/epiweeks
+  incidence2,     # epicurves of linelist data
+  i2extras,       # supplement to incidence2
+  forcats,        # working with factors
+  tidyverse,       # data management + ggplot2 graphics
+  knitr,
+  epiR,
+  survival,
+  lubridate,
+  zoo
+)
+```
+# Analysis of Vaccinations between Men and Women in the Five Health Districts Surrounding Atlanta
+#### Author: Gabriel Sullivan-Brugger
+
+### Abstract: 
+SARS-CoV-2 (COVID-19) vaccines became available to all Georgia residents on the 25th of March 2021. Of the five health districts surrounding Atlanta, 57.8% of residents have received at least one vaccine. There is a significant relationship between one's sex and getting at least one COVID-19 vaccine.
+
+### The Study:
+  On the 25th of March 2021, Georgia was the sixth state to open eligibility to all adults 18 years or older with no previous pre-existing conditions or are a high priority that increased their chance of developing a severe infection with SARS-CoV-2 (COVID-19) (*1*). There are 18 health districts that the Georgia Department of Public Health manages and funds. Each comprises one or more of the 159 counties and county health departments in Georgia (*2*). This study looks at the vaccination rates between both sexes of the five health districts surrounding Atlanta, GA, District 3-1 through 3-5, composed of 8 counties. District 3-1 is Cobb and Douglas County, District 3-2 is Fulton County, District 3-3 is Clayton County, District 3-4 is Gwinnett, Newton, and Rockdale County, and District 3-5 is DeKalb County. Data was collected from the Georgia Department of Public Health COVID-19 Dashboard, ranging from the 14th of December 2020 to the 26th of September 2021 (*3*).  
+
+```{r ATLVac1 Data, echo=FALSE}
+# read in data
+# read in data
+GAVac1All <- read.csv("PERSON_1_VAC_BY_DAY_COUNTY.csv")
+
+# filter to get metro counties
+ATLDVac1<-GAVac1All %>% 
+  filter(COUNTY_ID == 13063 | COUNTY_ID == 13067 |
+           COUNTY_ID == 13089 | COUNTY_ID == 13097 | COUNTY_ID == 13121 |
+           COUNTY_ID == 13135 | COUNTY_ID == 13217 | COUNTY_ID == 13247) 
+
+ATLDVac1$COUNTY_NAME[ATLDVac1$COUNTY_ID == "13067"] <- "District 3-1"
+ATLDVac1$COUNTY_NAME[ATLDVac1$COUNTY_ID == "13097"] <- "District 3-1"
+ATLDVac1$COUNTY_NAME[ATLDVac1$COUNTY_ID == "13121"] <- "District 3-2"
+ATLDVac1$COUNTY_NAME[ATLDVac1$COUNTY_ID == "13063"] <- "District 3-3"
+ATLDVac1$COUNTY_NAME[ATLDVac1$COUNTY_ID == "13135"] <- "District 3-4"
+ATLDVac1$COUNTY_NAME[ATLDVac1$COUNTY_ID == "13217"] <- "District 3-4"
+ATLDVac1$COUNTY_NAME[ATLDVac1$COUNTY_ID == "13247"] <- "District 3-4"
+ATLDVac1$COUNTY_NAME[ATLDVac1$COUNTY_ID == "13089"] <- "District 3-5"
+
+
+#renaming the column
+ATLDVac1.colrename <- ATLDVac1 %>%
+  select(COUNTY_NAME, ADMIN_DATE, PERSONVAX ) %>%
+  rename(DISTRICT = COUNTY_NAME)
+
+#making ADMIN_DATE<chr> into ADMIN_DATE<Date> 
+ATLDVac1.colrename$ADMIN_DATE <- as.Date(ATLDVac1.colrename$ADMIN_DATE,
+                                          format = "%Y-%m-%d")
+
+colnames(ATLDVac1.colrename) <- c("District", "Date Admin", "Number of Vax")
+```
+
+```{r ATLDSex Data, echo=FALSE}
+#Creating the ATLDSex data.frame for the second graph
+# read in data
+GASexAll <- read.csv("SEX_BY_COUNTY.csv")
+
+# filter to get metro counties
+ATLDSex<-GASexAll %>% 
+  filter(COUNTYFIPS == 13063 | COUNTYFIPS == 13067 | COUNTYFIPS == 13089 | 
+         COUNTYFIPS == 13097 | COUNTYFIPS == 13121 | COUNTYFIPS == 13135 | 
+         COUNTYFIPS == 13217 | COUNTYFIPS == 13247) 
+
+ATLDSex$COUNTY_NAME[ATLDSex$COUNTYFIPS == "13067"] <- "District 3-1"
+ATLDSex$COUNTY_NAME[ATLDSex$COUNTYFIPS == "13097"] <- "District 3-1"
+ATLDSex$COUNTY_NAME[ATLDSex$COUNTYFIPS == "13121"] <- "District 3-2"
+ATLDSex$COUNTY_NAME[ATLDSex$COUNTYFIPS == "13063"] <- "District 3-3"
+ATLDSex$COUNTY_NAME[ATLDSex$COUNTYFIPS == "13135"] <- "District 3-4"
+ATLDSex$COUNTY_NAME[ATLDSex$COUNTYFIPS == "13217"] <- "District 3-4"
+ATLDSex$COUNTY_NAME[ATLDSex$COUNTYFIPS == "13247"] <- "District 3-4"
+ATLDSex$COUNTY_NAME[ATLDSex$COUNTYFIPS == "13089"] <- "District 3-5"
+
+#renaming the column
+ATLDSex.colrename <- ATLDSex %>%
+  select(COUNTY_NAME, SEX, POPULATION, PERSONVAX, PCTCUMPVAX) %>%
+  rename(DISTRICT = COUNTY_NAME)
+
+
+# get rid of unknown sex
+ATLDSex.colrename<-ATLDSex.colrename[which(!ATLDSex$SEX=="Unknown"),]
+
+# get number unvaxed
+ATLDSex.colrename$pop_unvaxed<-ATLDSex.colrename$POPULATION-ATLDSex.colrename$PERSONVAX
+
+#___________________________________________________________
+#Ratio between F:M
+ATLDSex.PopCol <- ATLDSex.colrename %>%
+  select(c(POPULATION,DISTRICT,SEX))
+
+ATLDSex.PopDis3.1 <- ATLDSex.PopCol %>%
+  filter(DISTRICT %in% "District 3-1")
+
+ATLDSex.PopDis3.2 <- ATLDSex.PopCol %>%
+  filter(DISTRICT %in% "District 3-2")
+
+ATLDSex.PopDis3.3 <- ATLDSex.PopCol %>%
+  filter(DISTRICT %in% "District 3-3")
+
+ATLDSex.PopDis3.4 <- ATLDSex.PopCol %>%
+  filter(DISTRICT %in% "District 3-4")
+
+ATLDSex.PopDis3.5 <- ATLDSex.PopCol %>%
+  filter(DISTRICT %in% "District 3-5")
+
+
+DisVacPop <- sum(ATLDSex.colrename$PERSONVAX)
+DisTot <- sum(ATLDSex.colrename$POPULATION)
+
+#___________________________________________________________
+
+#F:M ratio
+D31FM <- sum(ATLDSex.PopDis3.1[c(1,3),1])/sum(ATLDSex.PopDis3.1[c(2,4),1])
+D32FM <- sum(ATLDSex.PopDis3.2[1,1])/sum(ATLDSex.PopDis3.2[2,1])
+D33FM <- sum(ATLDSex.PopDis3.3[1,1])/sum(ATLDSex.PopDis3.3[2,1])
+D34FM <- sum(ATLDSex.PopDis3.4[c(1,3,5),1])/sum(ATLDSex.PopDis3.4[c(2,4,6),1])
+D35FM <- sum(ATLDSex.PopDis3.5[1,1])/sum(ATLDSex.PopDis3.5[2,1])
+
+```
+
+   In this study, I use descriptive statistics to analyze the variables and perform multivariate analysis. The first vaccines distributed in Georgia were distributed on the 14th of December 2020 and allocated to high-priority individuals (*4*). The incidence of vaccination from December 2020 to the end of September 2021 is displayed in Graph 1. As of the end of September, 2,330,582 of 4,028,458 residents, 57.8% of the Atlanta Health districts, have received at least one vaccine. From December 2020 to opening vaccinations to all, there was a steady climb in the number of vaccines administered, peaking around the end of March and the beginning of April. Many of the district's incidences of vaccination were within a plus or minus 10 vaccinations per 1000-person range for the 10 months, with District 3-3 appearing to trail behind the other districts. However, District 3-3 does have an increased incidence in the latter months being observed, leading in the incidence of vaccination for the last three months of observation. The reduced incidence in District 3-3 could be due to its smaller population size than other districts.
+
+  In August 2021, the was a slight increase in vaccinations, most likely due to increased circulation of the Delta Variant, a more contagious strain of COVID-19 compared to earlier variants. On the 27th of July 2021, the CDC updated its guidance on the need for immediate action to increase the coverage of COVID-19 vaccinations in areas where transmission risks increase, even for those fully vaccinated. Studies on vaccinations have shown that getting the vaccine is the best way to prevent infection. People who are fully vaccinated are at a significantly reduced risk of developing a severe or mild infection or death due to COVID-19. Some data suggest the Delta variant may cause more severe illness for the unvaccinated compared to previous strains. (*5,6*)
+
+ 
+#### __Graph 1:__
+```{r Epi-Curve, echo=FALSE}
+#### __Graph 1:__
+#Epi-Curve Displaying vaccinations in the ATL Health Districts
+date_1 <- lubridate::ymd('2021-03-11')
+date_2 <- lubridate::ymd('2021-03-25')
+date_3 <- lubridate::ymd('2021-07-27')
+
+dates_vline <- as.Date(c("2021-03-13","2021-03-27","2021-07-30"))
+dates_vline <- which(ATLDVac1.colrename$`Date Admin` %in% dates_vline)
+
+ggplot(ATLDVac1.colrename, aes(x=`Date Admin`, y=`Number of Vax`,fill=District)) + 
+  geom_bar(position = "stack", stat = "identity") +
+  scale_fill_manual("legend", values = c("District 3-1" = "#DDCC77", "District 3-2" = "#117733", 
+                                         "District 3-3" = "#44AA99", "District 3-4" = "#999933", 
+                                         "District 3-5" = "#6699CC")) +
+  labs(title = "Number of Vaccinations a Day",
+       subtitle = "Health Districts surrounding Atlanta",
+       x = "Time, Dec. 2020 - Sept. 2021",
+       y = "Number Vaccinated") + 
+  theme(plot.title.position = "plot", panel.grid.minor.y = element_blank()) +
+  scale_y_continuous(limits = c(0,45000), breaks = seq(0,45000,5000)) +
+  scale_x_date(date_breaks = "months" , date_labels = "%b-%y") +
+  geom_vline(xintercept=as.numeric(ATLDVac1.colrename$`Date Admin`[dates_vline]),lwd=0.4) +
+  annotate(geom = "text",
+           label = c("One year w/ COVID-19, 2021-03-11", 
+                     "Eligibility Open for Vaccine, 2021-03-25",
+                     "Delta Variant Case becoming more prominant"),
+           x = c(date_1, date_2, date_3),
+           y = c(25000,25000,25000),
+           angle =90,
+           vjust = "left",
+           size = 3)
+```
+
+```{r Incidence Table Code Filter Months, echo=FALSE}
+#Incidence Table
+#Filtering by month
+# Making an Incidence table for vaccinations by 2 month intervals from Dec.2020 - Sept.2021
+
+#December
+selectM.Dec<-ATLDVac1.colrename %>% 
+  filter(`Date Admin` >= as.Date("2020-12-13") & `Date Admin` <= as.Date("2020-12-31"))
+#January
+selectM.Jan<-ATLDVac1.colrename %>%
+  filter(`Date Admin` >= as.Date("2021-01-01") & `Date Admin` <= as.Date("2021-01-31"))
+#February
+selectM.Feb<-ATLDVac1.colrename %>%
+  filter(`Date Admin` >= as.Date("2021-02-01") & `Date Admin` <= as.Date("2021-02-28"))
+#March
+selectM.Mar<-ATLDVac1.colrename %>%
+  filter(`Date Admin` >= as.Date("2021-03-01") & `Date Admin` <= as.Date("2021-03-31"))
+#April
+selectM.Apr<-ATLDVac1.colrename %>%
+  filter(`Date Admin` >= as.Date("2021-04-01") & `Date Admin` <= as.Date("2021-04-30"))
+#May
+selectM.May<-ATLDVac1.colrename %>%
+  filter(`Date Admin` >= as.Date("2021-05-01") & `Date Admin` <= as.Date("2021-05-31"))
+#June 
+selectM.Jun<-ATLDVac1.colrename %>%
+  filter(`Date Admin` >= as.Date("2021-06-01") & `Date Admin` <= as.Date("2021-06-30"))
+#July
+selectM.Jul<-ATLDVac1.colrename %>%
+  filter(`Date Admin` >= as.Date("2021-07-01") & `Date Admin` <= as.Date("2021-07-31"))
+#August
+selectM.Aug<-ATLDVac1.colrename %>%
+  filter(`Date Admin` >= as.Date("2021-08-01") & `Date Admin` <= as.Date("2021-08-31"))
+#September
+selectM.Sept<-ATLDVac1.colrename %>%
+  filter(`Date Admin` >= as.Date("2021-09-01") & `Date Admin` <= as.Date("2021-09-30"))
+
+#The Population of each District
+Dis3.1Pop <- ATLDSex.colrename %>% 
+  filter(DISTRICT %in% "District 3-1")
+Dis3.1Pop <- sum(Dis3.1Pop$POPULATION)
+
+Dis3.2Pop <- ATLDSex.colrename %>% 
+  filter(DISTRICT %in% "District 3-2")
+Dis3.2Pop <- sum(Dis3.2Pop$POPULATION)
+
+Dis3.3Pop <- ATLDSex.colrename %>% 
+  filter(DISTRICT %in% "District 3-3")
+Dis3.3Pop <- sum(Dis3.3Pop$POPULATION)
+
+Dis3.4Pop <- ATLDSex.colrename %>% 
+  filter(DISTRICT %in% "District 3-4")
+Dis3.4Pop <- sum(Dis3.4Pop$POPULATION)
+
+Dis3.5Pop <- ATLDSex.colrename %>% 
+  filter(DISTRICT %in% "District 3-5")
+Dis3.5Pop <- sum(Dis3.5Pop$POPULATION)
+
+TotalRes.ATL <- sum(Dis3.1Pop, Dis3.2Pop, Dis3.3Pop, Dis3.4Pop, Dis3.5Pop)
+```
+
+```{r Incidence Table Code Districts Months, echo=FALSE}
+#Second, filter(`District`)
+#District 3-1 Month 12 - 9
+Dist3.1.Month.Dec <- selectM.Dec %>%
+  filter(District %in% "District 3-1")
+SumDist3.1.Dec <- sum(Dist3.1.Month.Dec$`Number of Vax`)
+#
+
+Dist3.1.Month.Jan <- selectM.Jan %>%
+  filter(District %in% "District 3-1")
+SumDist3.1.Jan <- sum(Dist3.1.Month.Jan$`Number of Vax`)
+#
+
+Dist3.1.Month.Feb<- selectM.Feb %>%
+  filter(District %in% "District 3-1")
+SumDist3.1.Feb <- sum(Dist3.1.Month.Feb$`Number of Vax`)
+#
+
+Dist3.1.Month.Mar <- selectM.Mar %>%
+  filter(District %in% "District 3-1")
+SumDist3.1.Mar <- sum(Dist3.1.Month.Mar$`Number of Vax`)
+#
+
+Dist3.1.Month.Apr <- selectM.Apr %>%
+  filter(District %in% "District 3-1")
+SumDist3.1.Apr <- sum(Dist3.1.Month.Apr$`Number of Vax`)
+#
+
+Dist3.1.Month.May <- selectM.May %>%
+  filter(District %in% "District 3-1")
+SumDist3.1.May <- sum(Dist3.1.Month.May$`Number of Vax`)
+#
+
+Dist3.1.Month.Jun <- selectM.Jun %>%
+  filter(District %in% "District 3-1")
+SumDist3.1.Jun <- sum(Dist3.1.Month.Jun$`Number of Vax`)
+#
+
+Dist3.1.Month.Jul <- selectM.Jul %>%
+  filter(District %in% "District 3-1")
+SumDist3.1.Jul <- sum(Dist3.1.Month.Jul$`Number of Vax`)
+#
+
+Dist3.1.Month.Aug <- selectM.Aug %>%
+  filter(District %in% "District 3-1")
+SumDist3.1.Aug <- sum(Dist3.1.Month.Aug$`Number of Vax`)
+#
+
+Dist3.1.Month.Sept <- selectM.Sept %>%
+  filter(District %in% "District 3-1")
+SumDist3.1.Sept <- sum(Dist3.1.Month.Sept$`Number of Vax`)
+#
+
+###
+#did this to check, compared percentage in excel sheet
+Dis3.1TotalVac <- sum(c(SumDist3.1.Dec, SumDist3.1.Jan, SumDist3.1.Feb, SumDist3.1.Mar,
+                        SumDist3.1.Apr, SumDist3.1.May, SumDist3.1.Jun, SumDist3.1.Jul,
+                        SumDist3.1.Aug, SumDist3.1.Sept))
+Dis3.1Incid<- Dis3.1TotalVac/Dis3.1Pop
+
+
+###########################################################
+#District 3-2 Month 12 - 9
+Dist3.2.Month.Dec <- selectM.Dec %>%
+  filter(District %in% "District 3-2")
+SumDist3.2.Dec <- sum(Dist3.2.Month.Dec$`Number of Vax`)
+#
+
+Dist3.2.Month.Jan <- selectM.Jan %>%
+  filter(District %in% "District 3-2")
+SumDist3.2.Jan <- sum(Dist3.2.Month.Jan$`Number of Vax`)
+#
+
+Dist3.2.Month.Feb<- selectM.Feb %>%
+  filter(District %in% "District 3-2")
+SumDist3.2.Feb <- sum(Dist3.2.Month.Feb$`Number of Vax`)
+#
+
+Dist3.2.Month.Mar <- selectM.Mar %>%
+  filter(District %in% "District 3-2")
+SumDist3.2.Mar <- sum(Dist3.2.Month.Mar$`Number of Vax`)
+#
+
+Dist3.2.Month.Apr <- selectM.Apr %>%
+  filter(District %in% "District 3-2")
+SumDist3.2.Apr <- sum(Dist3.2.Month.Apr$`Number of Vax`)
+#
+
+Dist3.2.Month.May <- selectM.May %>%
+  filter(District %in% "District 3-2")
+SumDist3.2.May <- sum(Dist3.2.Month.May$`Number of Vax`)
+#
+
+Dist3.2.Month.Jun <- selectM.Jun %>%
+  filter(District %in% "District 3-2")
+SumDist3.2.Jun <- sum(Dist3.2.Month.Jun$`Number of Vax`)
+#
+
+Dist3.2.Month.Jul <- selectM.Jul %>%
+  filter(District %in% "District 3-2")
+SumDist3.2.Jul <- sum(Dist3.2.Month.Jul$`Number of Vax`)
+#
+
+Dist3.2.Month.Aug <- selectM.Aug %>%
+  filter(District %in% "District 3-2")
+SumDist3.2.Aug <- sum(Dist3.2.Month.Aug$`Number of Vax`)
+#
+
+Dist3.2.Month.Sept <- selectM.Sept %>%
+  filter(District %in% "District 3-2")
+SumDist3.2.Sept <- sum(Dist3.2.Month.Sept$`Number of Vax`)
+#
+
+Dis3.2TotalVac <- sum(c(SumDist3.2.Dec, SumDist3.2.Jan, SumDist3.2.Feb, SumDist3.2.Mar,
+                        SumDist3.2.Apr, SumDist3.2.May, SumDist3.2.Jun, SumDist3.2.Jul,
+                        SumDist3.2.Aug, SumDist3.2.Sept))
+Dis3.2Incid <- Dis3.2TotalVac/Dis3.2Pop
+
+
+###########################################################
+#District 3-3 Month 12 - 9
+Dist3.3.Month.Dec <- selectM.Dec %>%
+  filter(District %in% "District 3-3")
+SumDist3.3.Dec <- sum(Dist3.3.Month.Dec$`Number of Vax`)
+
+Dist3.3.Month.Jan <- selectM.Jan %>%
+  filter(District %in% "District 3-3")
+SumDist3.3.Jan <- sum(Dist3.3.Month.Jan$`Number of Vax`)
+
+Dist3.3.Month.Feb<- selectM.Feb %>%
+  filter(District %in% "District 3-3")
+SumDist3.3.Feb <- sum(Dist3.3.Month.Feb$`Number of Vax`)
+
+Dist3.3.Month.Mar <- selectM.Mar %>%
+  filter(District %in% "District 3-3")
+SumDist3.3.Mar <- sum(Dist3.3.Month.Mar$`Number of Vax`)
+
+Dist3.3.Month.Apr <- selectM.Apr %>%
+  filter(District %in% "District 3-3")
+SumDist3.3.Apr <- sum(Dist3.3.Month.Apr$`Number of Vax`)
+
+Dist3.3.Month.May <- selectM.May %>%
+  filter(District %in% "District 3-3")
+SumDist3.3.May <- sum(Dist3.3.Month.May$`Number of Vax`)
+
+Dist3.3.Month.Jun <- selectM.Jun %>%
+  filter(District %in% "District 3-3")
+SumDist3.3.Jun <- sum(Dist3.3.Month.Jun$`Number of Vax`)
+
+Dist3.3.Month.Jul <- selectM.Jul %>%
+  filter(District %in% "District 3-3")
+SumDist3.3.Jul <- sum(Dist3.3.Month.Jul$`Number of Vax`)
+
+Dist3.3.Month.Aug <- selectM.Aug %>%
+  filter(District %in% "District 3-3")
+SumDist3.3.Aug <- sum(Dist3.3.Month.Aug$`Number of Vax`)
+
+Dist3.3.Month.Sept <- selectM.Sept %>%
+  filter(District %in% "District 3-3")
+SumDist3.3.Sept <- sum(Dist3.3.Month.Sept$`Number of Vax`)
+
+Dis3.3TotalVac <- sum(c(SumDist3.3.Dec, SumDist3.3.Jan, SumDist3.3.Feb, SumDist3.3.Mar,
+                        SumDist3.3.Apr, SumDist3.3.May, SumDist3.3.Jun, SumDist3.3.Jul,
+                        SumDist3.3.Aug, SumDist3.3.Sept))
+Dis3.3Incid <- Dis3.3TotalVac/Dis3.3Pop
+
+
+###########################################################
+#District 3-4 Month 12 - 9
+Dist3.4.Month.Dec <- selectM.Dec %>%
+  filter(District %in% "District 3-4")
+SumDist3.4.Dec <- sum(Dist3.4.Month.Dec$`Number of Vax`)
+
+Dist3.4.Month.Jan <- selectM.Jan %>%
+  filter(District %in% "District 3-4")
+SumDist3.4.Jan <- sum(Dist3.4.Month.Jan$`Number of Vax`)
+
+Dist3.4.Month.Feb<- selectM.Feb %>%
+  filter(District %in% "District 3-4")
+SumDist3.4.Feb <- sum(Dist3.4.Month.Feb$`Number of Vax`)
+
+Dist3.4.Month.Mar <- selectM.Mar %>%
+  filter(District %in% "District 3-4")
+SumDist3.4.Mar <- sum(Dist3.4.Month.Mar$`Number of Vax`)
+
+Dist3.4.Month.Apr <- selectM.Apr %>%
+  filter(District %in% "District 3-4")
+SumDist3.4.Apr <- sum(Dist3.4.Month.Apr$`Number of Vax`)
+
+Dist3.4.Month.May <- selectM.May %>%
+  filter(District %in% "District 3-4")
+SumDist3.4.May <- sum(Dist3.4.Month.May$`Number of Vax`)
+
+Dist3.4.Month.Jun <- selectM.Jun %>%
+  filter(District %in% "District 3-4")
+SumDist3.4.Jun <- sum(Dist3.4.Month.Jun$`Number of Vax`)
+
+Dist3.4.Month.Jul <- selectM.Jul %>%
+  filter(District %in% "District 3-4")
+SumDist3.4.Jul <- sum(Dist3.4.Month.Jul$`Number of Vax`)
+
+Dist3.4.Month.Aug <- selectM.Aug %>%
+  filter(District %in% "District 3-4")
+SumDist3.4.Aug <- sum(Dist3.4.Month.Aug$`Number of Vax`)
+
+Dist3.4.Month.Sept <- selectM.Sept %>%
+  filter(District %in% "District 3-4")
+SumDist3.4.Sept <- sum(Dist3.4.Month.Sept$`Number of Vax`)
+
+Dis3.4TotalVac <- sum(c(SumDist3.4.Dec, SumDist3.4.Jan, SumDist3.4.Feb, SumDist3.4.Mar,
+                        SumDist3.4.Apr, SumDist3.4.May, SumDist3.4.Jun, SumDist3.4.Jul,
+                        SumDist3.4.Aug, SumDist3.4.Sept))
+Dis3.4Incid <- Dis3.4TotalVac/Dis3.4Pop
+
+
+###########################################################
+#District 3-5 Month 12 - 9
+Dist3.5.Month.Dec <- selectM.Dec %>%
+  filter(District %in% "District 3-5")
+SumDist3.5.Dec <- sum(Dist3.5.Month.Dec$`Number of Vax`)
+
+Dist3.5.Month.Jan <- selectM.Jan %>%
+  filter(District %in% "District 3-5")
+SumDist3.5.Jan <- sum(Dist3.5.Month.Jan$`Number of Vax`)
+
+Dist3.5.Month.Feb<- selectM.Feb %>%
+  filter(District %in% "District 3-5")
+SumDist3.5.Feb <- sum(Dist3.5.Month.Feb$`Number of Vax`)
+
+Dist3.5.Month.Mar <- selectM.Mar %>%
+  filter(District %in% "District 3-5")
+SumDist3.5.Mar <- sum(Dist3.4.Month.Mar$`Number of Vax`)
+
+Dist3.5.Month.Apr <- selectM.Apr %>%
+  filter(District %in% "District 3-5")
+SumDist3.5.Apr <- sum(Dist3.5.Month.Apr$`Number of Vax`)
+
+Dist3.5.Month.May <- selectM.May %>%
+  filter(District %in% "District 3-5")
+SumDist3.5.May <- sum(Dist3.5.Month.May$`Number of Vax`)
+
+Dist3.5.Month.Jun <- selectM.Jun %>%
+  filter(District %in% "District 3-5")
+SumDist3.5.Jun <- sum(Dist3.5.Month.Jun$`Number of Vax`)
+
+Dist3.5.Month.Jul <- selectM.Jul %>%
+  filter(District %in% "District 3-5")
+SumDist3.5.Jul <- sum(Dist3.5.Month.Jul$`Number of Vax`)
+
+Dist3.5.Month.Aug <- selectM.Aug %>%
+  filter(District %in% "District 3-5")
+SumDist3.5.Aug <- sum(Dist3.5.Month.Aug$`Number of Vax`)
+
+Dist3.5.Month.Sept <- selectM.Sept %>%
+  filter(District %in% "District 3-5")
+SumDist3.5.Sept <- sum(Dist3.5.Month.Sept$`Number of Vax`)
+
+
+Dis3.5TotalVac <- sum(c(SumDist3.5.Dec, SumDist3.5.Jan, SumDist3.5.Feb, SumDist3.5.Mar,
+                        SumDist3.5.Apr, SumDist3.5.May, SumDist3.5.Jun, SumDist3.5.Jul,
+                        SumDist3.5.Aug, SumDist3.5.Sept))
+
+Dis3.5Incid <- Dis3.5TotalVac/Dis3.5Pop
+```
+
+```{r Incidence Table Code Calculations, echo=FALSE}
+#Calculating Incidence and 95% CI
+####DISTRICT 3-1
+#Dis 3-1 Dec
+Dis3.1.Dec.matrix <- as.matrix(cbind(SumDist3.1.Dec, Dis3.1Pop))
+Dis3.1.Dec.CI95 <- epi.conf(Dis3.1.Dec.matrix, ctype = "inc.risk", method = "exact", TotalRes.ATL, design = 1,
+                               conf.level = 0.95)
+#Dis 3-1 Jan
+Dis3.1.Jan.matrix <- as.matrix(cbind(SumDist3.1.Jan, Dis3.1Pop))
+Dis3.1.Jan.CI95 <- epi.conf(Dis3.1.Jan.matrix, ctype = "inc.risk", method = "exact", TotalRes.ATL, design = 1,
+                               conf.level = 0.95)
+#Dis 3-1 Feb
+Dis3.1.Feb.matrix <- as.matrix(cbind(SumDist3.1.Feb, Dis3.1Pop))
+Dis3.1.Feb.CI95 <- epi.conf(Dis3.1.Feb.matrix, ctype = "inc.risk", method = "exact", TotalRes.ATL, design = 1,
+                               conf.level = 0.95)
+#Dis 3-1 Mar
+Dis3.1.Mar.matrix <- as.matrix(cbind(SumDist3.1.Mar, Dis3.1Pop))
+Dis3.1.Mar.CI95 <- epi.conf(Dis3.1.Mar.matrix, ctype = "inc.risk", method = "exact", TotalRes.ATL, design = 1,
+                               conf.level = 0.95)
+#Dis 3-1 Apr
+Dis3.1.Apr.matrix <- as.matrix(cbind(SumDist3.1.Apr, Dis3.1Pop))
+Dis3.1.Apr.CI95 <- epi.conf(Dis3.1.Apr.matrix, ctype = "inc.risk", method = "exact", TotalRes.ATL, design = 1,
+                               conf.level = 0.95)
+#Dis 3-1 May
+Dis3.1.May.matrix <- as.matrix(cbind(SumDist3.1.May, Dis3.1Pop))
+Dis3.1.May.CI95 <- epi.conf(Dis3.1.May.matrix, ctype = "inc.risk", method = "exact", TotalRes.ATL, design = 1,
+                               conf.level = 0.95)
+#Dis 3-1 Jun
+Dis3.1.Jun.matrix <- as.matrix(cbind(SumDist3.1.Jun, Dis3.1Pop))
+Dis3.1.Jun.CI95 <- epi.conf(Dis3.1.Jun.matrix, ctype = "inc.risk", method = "exact", TotalRes.ATL, design = 1,
+                               conf.level = 0.95)
+#Dis 3-1 Jul
+Dis3.1.Jul.matrix <- as.matrix(cbind(SumDist3.1.Jul, Dis3.1Pop))
+Dis3.1.Jul.CI95 <- epi.conf(Dis3.1.Jul.matrix, ctype = "inc.risk", method = "exact", TotalRes.ATL, design = 1,
+                               conf.level = 0.95)
+#Dis 3-1 Aug
+Dis3.1.Aug.matrix <- as.matrix(cbind(SumDist3.1.Aug, Dis3.1Pop))
+Dis3.1.Aug.CI95 <- epi.conf(Dis3.1.Aug.matrix, ctype = "inc.risk", method = "exact", TotalRes.ATL, design = 1,
+                                conf.level = 0.95)
+#Dis 3-1 Sept
+Dis3.1.Sept.matrix <- as.matrix(cbind(SumDist3.1.Sept, Dis3.1Pop))
+Dis3.1.Sept.CI95 <- epi.conf(Dis3.1.Sept.matrix, ctype = "inc.risk", method = "exact", TotalRes.ATL, design = 1,
+                                conf.level = 0.95)
+
+
+Dis3.1.All.CI95 <- cbind(Dis3.1.Dec.CI95, Dis3.1.Jan.CI95,Dis3.1.Feb.CI95, Dis3.1.Mar.CI95,Dis3.1.Apr.CI95, 
+                         Dis3.1.May.CI95, Dis3.1.Jun.CI95, Dis3.1.Jul.CI95, Dis3.1.Aug.CI95, Dis3.1.Sept.CI95)*1000
+colnames(Dis3.1.All.CI95) <- c("Dec","l","u","Jan","l","u","Feb","l","u","Mar","l","u","Apr","l","u",
+                               "May","l","u","Jun","l","u","Jul","l","u","Aug","l","u","Sept","l","u")
+#_____________________________________________________________
+
+####DISTRICT 3-2
+#Dis 3-2 Dec
+Dis3.2.Dec.matrix <- as.matrix(cbind(SumDist3.2.Dec, Dis3.2Pop))
+Dis3.2.Dec.CI95 <- epi.conf(Dis3.2.Dec.matrix, ctype = "inc.risk", method = "exact", TotalRes.ATL, design = 1,
+                            conf.level = 0.95)
+#Dis 3-2 Jan
+Dis3.2.Jan.matrix <- as.matrix(cbind(SumDist3.2.Jan, Dis3.2Pop))
+Dis3.2.Jan.CI95 <- epi.conf(Dis3.2.Jan.matrix, ctype = "inc.risk", method = "exact", TotalRes.ATL, design = 1,
+                            conf.level = 0.95)
+#Dis 3-2 Feb
+Dis3.2.Feb.matrix <- as.matrix(cbind(SumDist3.2.Feb, Dis3.2Pop))
+Dis3.2.Feb.CI95 <- epi.conf(Dis3.2.Feb.matrix, ctype = "inc.risk", method = "exact", TotalRes.ATL, design = 1,
+                            conf.level = 0.95)
+#Dis 3-2 Mar
+Dis3.2.Mar.matrix <- as.matrix(cbind(SumDist3.2.Mar, Dis3.2Pop))
+Dis3.2.Mar.CI95 <- epi.conf(Dis3.2.Mar.matrix, ctype = "inc.risk", method = "exact", TotalRes.ATL, design = 1,
+                            conf.level = 0.95)
+#Dis 3-2 Apr
+Dis3.2.Apr.matrix <- as.matrix(cbind(SumDist3.2.Apr, Dis3.2Pop))
+Dis3.2.Apr.CI95 <- epi.conf(Dis3.2.Apr.matrix, ctype = "inc.risk", method = "exact", TotalRes.ATL, design = 1,
+                            conf.level = 0.95)
+#Dis 3-2 May
+Dis3.2.May.matrix <- as.matrix(cbind(SumDist3.2.May, Dis3.2Pop))
+Dis3.2.May.CI95 <- epi.conf(Dis3.2.May.matrix, ctype = "inc.risk", method = "exact", TotalRes.ATL, design = 1,
+                            conf.level = 0.95)
+#Dis 3-1 Jun
+Dis3.2.Jun.matrix <- as.matrix(cbind(SumDist3.2.Jun, Dis3.2Pop))
+Dis3.2.Jun.CI95 <- epi.conf(Dis3.2.Jun.matrix, ctype = "inc.risk", method = "exact", TotalRes.ATL, design = 1,
+                            conf.level = 0.95)
+#Dis 3-2 Jul
+Dis3.2.Jul.matrix <- as.matrix(cbind(SumDist3.2.Jul, Dis3.2Pop))
+Dis3.2.Jul.CI95 <- epi.conf(Dis3.2.Jul.matrix, ctype = "inc.risk", method = "exact", TotalRes.ATL, design = 1,
+                            conf.level = 0.95)
+#Dis 3-2 Aug
+Dis3.2.Aug.matrix <- as.matrix(cbind(SumDist3.2.Aug, Dis3.2Pop))
+Dis3.2.Aug.CI95 <- epi.conf(Dis3.2.Aug.matrix, ctype = "inc.risk", method = "exact", TotalRes.ATL, design = 1,
+                            conf.level = 0.95)
+#Dis 3-2 Sept
+Dis3.2.Sept.matrix <- as.matrix(cbind(SumDist3.2.Sept, Dis3.2Pop))
+Dis3.2.Sept.CI95 <- epi.conf(Dis3.2.Sept.matrix, ctype = "inc.risk", method = "exact", TotalRes.ATL, design = 1,
+                             conf.level = 0.95)
+
+Dis3.2.All.CI95 <- cbind(Dis3.2.Dec.CI95, Dis3.2.Jan.CI95,Dis3.2.Feb.CI95, Dis3.2.Mar.CI95,Dis3.2.Apr.CI95, 
+                         Dis3.2.May.CI95, Dis3.2.Jun.CI95,Dis3.2.Jul.CI95, Dis3.2.Aug.CI95,Dis3.2.Sept.CI95)*1000
+colnames(Dis3.2.All.CI95) <- c("Dec","l","u","Jan","l","u","Feb","l","u","Mar","l","u","Apr","l","u",
+                               "May","l","u","Jun","l","u","Jul","l","u","Aug","l","u","Sept","l","u")
+#_____________________________________________________________
+
+####DISTRICT 3-3
+#Dis 3-3 Dec
+Dis3.3.Dec.matrix <- as.matrix(cbind(SumDist3.3.Dec, Dis3.3Pop))
+Dis3.3.Dec.CI95 <- epi.conf(Dis3.3.Dec.matrix, ctype = "inc.risk", method = "exact", TotalRes.ATL, design = 1,
+                            conf.level = 0.95)
+#Dis 3-3 Jan
+Dis3.3.Jan.matrix <- as.matrix(cbind(SumDist3.3.Jan, Dis3.3Pop))
+Dis3.3.Jan.CI95 <- epi.conf(Dis3.3.Jan.matrix, ctype = "inc.risk", method = "exact", TotalRes.ATL, design = 1,
+                            conf.level = 0.95)
+#Dis 3- Feb
+Dis3.3.Feb.matrix <- as.matrix(cbind(SumDist3.3.Feb, Dis3.3Pop))
+Dis3.3.Feb.CI95 <- epi.conf(Dis3.3.Feb.matrix, ctype = "inc.risk", method = "exact", TotalRes.ATL, design = 1,
+                            conf.level = 0.95)
+#Dis 3-3 Mar
+Dis3.3.Mar.matrix <- as.matrix(cbind(SumDist3.3.Mar, Dis3.3Pop))
+Dis3.3.Mar.CI95 <- epi.conf(Dis3.3.Mar.matrix, ctype = "inc.risk", method = "exact", TotalRes.ATL, design = 1,
+                            conf.level = 0.95)
+#Dis 3-3 Apr
+Dis3.3.Apr.matrix <- as.matrix(cbind(SumDist3.3.Apr, Dis3.3Pop))
+Dis3.3.Apr.CI95 <- epi.conf(Dis3.3.Apr.matrix, ctype = "inc.risk", method = "exact", TotalRes.ATL, design = 1,
+                            conf.level = 0.95)
+#Dis 3-3 May
+Dis3.3.May.matrix <- as.matrix(cbind(SumDist3.3.May, Dis3.3Pop))
+Dis3.3.May.CI95 <- epi.conf(Dis3.3.May.matrix, ctype = "inc.risk", method = "exact", TotalRes.ATL, design = 1,
+                            conf.level = 0.95)
+#Dis 3-3 Jun
+Dis3.3.Jun.matrix <- as.matrix(cbind(SumDist3.3.Jun, Dis3.3Pop))
+Dis3.3.Jun.CI95 <- epi.conf(Dis3.3.Jun.matrix, ctype = "inc.risk", method = "exact", TotalRes.ATL, design = 1,
+                            conf.level = 0.95)
+#Dis 3-3 Jul
+Dis3.3.Jul.matrix <- as.matrix(cbind(SumDist3.3.Jul, Dis3.3Pop))
+Dis3.3.Jul.CI95 <- epi.conf(Dis3.3.Jul.matrix, ctype = "inc.risk", method = "exact", TotalRes.ATL, design = 1,
+                            conf.level = 0.95)
+#Dis 3-3 Aug
+Dis3.3.Aug.matrix <- as.matrix(cbind(SumDist3.3.Aug, Dis3.3Pop))
+Dis3.3.Aug.CI95 <- epi.conf(Dis3.3.Aug.matrix, ctype = "inc.risk", method = "exact", TotalRes.ATL, design = 1,
+                            conf.level = 0.95)
+#Dis 3-3 Sept
+Dis3.3.Sept.matrix <- as.matrix(cbind(SumDist3.3.Sept, Dis3.3Pop))
+Dis3.3.Sept.CI95 <- epi.conf(Dis3.3.Sept.matrix, ctype = "inc.risk", method = "exact", TotalRes.ATL, design = 1,
+                             conf.level = 0.95)
+
+Dis3.3.All.CI95 <- cbind(Dis3.3.Dec.CI95, Dis3.3.Jan.CI95,Dis3.3.Feb.CI95, Dis3.3.Mar.CI95,Dis3.3.Apr.CI95, 
+                         Dis3.3.May.CI95, Dis3.3.Jun.CI95,Dis3.3.Jul.CI95, Dis3.3.Aug.CI95,Dis3.3.Sept.CI95)*1000
+colnames(Dis3.3.All.CI95) <- c("Dec","l","u","Jan","l","u","Feb","l","u","Mar","l","u","Apr","l","u",
+                               "May","l","u","Jun","l","u","Jul","l","u","Aug","l","u","Sept","l","u")
+#_____________________________________________________________
+
+####DISTRICT 3-4
+#Dis 3-4 Dec
+Dis3.4.Dec.matrix <- as.matrix(cbind(SumDist3.4.Dec, Dis3.4Pop))
+Dis3.4.Dec.CI95 <- epi.conf(Dis3.4.Dec.matrix, ctype = "inc.risk", method = "exact", TotalRes.ATL, design = 1,
+                            conf.level = 0.95)
+#Dis 3-4 Jan
+Dis3.4.Jan.matrix <- as.matrix(cbind(SumDist3.4.Jan, Dis3.4Pop))
+Dis3.4.Jan.CI95 <- epi.conf(Dis3.4.Jan.matrix, ctype = "inc.risk", method = "exact", TotalRes.ATL, design = 1,
+                            conf.level = 0.95)
+#Dis 3-4 Feb
+Dis3.4.Feb.matrix <- as.matrix(cbind(SumDist3.4.Feb, Dis3.4Pop))
+Dis3.4.Feb.CI95 <- epi.conf(Dis3.4.Feb.matrix, ctype = "inc.risk", method = "exact", TotalRes.ATL, design = 1,
+                            conf.level = 0.95)
+#Dis 3-3 Mar
+Dis3.4.Mar.matrix <- as.matrix(cbind(SumDist3.4.Mar, Dis3.4Pop))
+Dis3.4.Mar.CI95 <- epi.conf(Dis3.4.Mar.matrix, ctype = "inc.risk", method = "exact", TotalRes.ATL, design = 1,
+                            conf.level = 0.95)
+#Dis 3-4 Apr
+Dis3.4.Apr.matrix <- as.matrix(cbind(SumDist3.4.Apr, Dis3.4Pop))
+Dis3.4.Apr.CI95 <- epi.conf(Dis3.4.Apr.matrix, ctype = "inc.risk", method = "exact", TotalRes.ATL, design = 1,
+                            conf.level = 0.95)
+#Dis 3-4 May
+Dis3.4.May.matrix <- as.matrix(cbind(SumDist3.4.May, Dis3.4Pop))
+Dis3.4.May.CI95 <- epi.conf(Dis3.4.May.matrix, ctype = "inc.risk", method = "exact", TotalRes.ATL, design = 1,
+                            conf.level = 0.95)
+#Dis 3-4 Jun
+Dis3.4.Jun.matrix <- as.matrix(cbind(SumDist3.4.Jun, Dis3.4Pop))
+Dis3.4.Jun.CI95 <- epi.conf(Dis3.4.Jun.matrix, ctype = "inc.risk", method = "exact", TotalRes.ATL, design = 1,
+                            conf.level = 0.95)
+#Dis 3-4 Jul
+Dis3.4.Jul.matrix <- as.matrix(cbind(SumDist3.4.Jul, Dis3.4Pop))
+Dis3.4.Jul.CI95 <- epi.conf(Dis3.4.Jul.matrix, ctype = "inc.risk", method = "exact", TotalRes.ATL, design = 1,
+                            conf.level = 0.95)
+#Dis 3-4 Aug
+Dis3.4.Aug.matrix <- as.matrix(cbind(SumDist3.4.Aug, Dis3.4Pop))
+Dis3.4.Aug.CI95 <- epi.conf(Dis3.4.Aug.matrix, ctype = "inc.risk", method = "exact", TotalRes.ATL, design = 1,
+                            conf.level = 0.95)
+#Dis 3-4 Sept
+Dis3.4.Sept.matrix <- as.matrix(cbind(SumDist3.4.Sept, Dis3.4Pop))
+Dis3.4.Sept.CI95 <- epi.conf(Dis3.4.Sept.matrix, ctype = "inc.risk", method = "exact", TotalRes.ATL, design = 1,
+                             conf.level = 0.95)
+
+Dis3.4.All.CI95 <- cbind(Dis3.4.Dec.CI95, Dis3.4.Jan.CI95,Dis3.4.Feb.CI95, Dis3.4.Mar.CI95,Dis3.4.Apr.CI95, 
+                         Dis3.4.May.CI95, Dis3.4.Jun.CI95,Dis3.4.Jul.CI95, Dis3.4.Aug.CI95,Dis3.4.Sept.CI95)*1000
+colnames(Dis3.4.All.CI95) <- c("Dec","l","u","Jan","l","u","Feb","l","u","Mar","l","u","Apr","l","u",
+                               "May","l","u","Jun","l","u","Jul","l","u","Aug","l","u","Sept","l","u")
+#_____________________________________________________________
+
+####DISTRICT 3-5
+#Dis 3-5 Dec
+Dis3.5.Dec.matrix <- as.matrix(cbind(SumDist3.5.Dec, Dis3.5Pop))
+Dis3.5.Dec.CI95 <- epi.conf(Dis3.5.Dec.matrix, ctype = "inc.risk", method = "exact", TotalRes.ATL, design = 1,
+                            conf.level = 0.95)
+#Dis 3-5 Jan
+Dis3.5.Jan.matrix <- as.matrix(cbind(SumDist3.5.Jan, Dis3.5Pop))
+Dis3.5.Jan.CI95 <- epi.conf(Dis3.5.Jan.matrix, ctype = "inc.risk", method = "exact", TotalRes.ATL, design = 1,
+                            conf.level = 0.95)
+#Dis 3-5 Feb
+Dis3.5.Feb.matrix <- as.matrix(cbind(SumDist3.5.Feb, Dis3.5Pop))
+Dis3.5.Feb.CI95 <- epi.conf(Dis3.5.Feb.matrix, ctype = "inc.risk", method = "exact", TotalRes.ATL, design = 1,
+                            conf.level = 0.95)
+#Dis 3-5 Mar
+Dis3.5.Mar.matrix <- as.matrix(cbind(SumDist3.5.Mar, Dis3.5Pop))
+Dis3.5.Mar.CI95 <- epi.conf(Dis3.5.Mar.matrix, ctype = "inc.risk", method = "exact", TotalRes.ATL, design = 1,
+                            conf.level = 0.95)
+#Dis 3-5 Apr
+Dis3.5.Apr.matrix <- as.matrix(cbind(SumDist3.5.Apr, Dis3.5Pop))
+Dis3.5.Apr.CI95 <- epi.conf(Dis3.5.Apr.matrix, ctype = "inc.risk", method = "exact", TotalRes.ATL, design = 1,
+                            conf.level = 0.95)
+#Dis 3-5 May
+Dis3.5.May.matrix <- as.matrix(cbind(SumDist3.5.May, Dis3.5Pop))
+Dis3.5.May.CI95 <- epi.conf(Dis3.5.May.matrix, ctype = "inc.risk", method = "exact", TotalRes.ATL, design = 1,
+                            conf.level = 0.95)
+#Dis 3-5 Jun
+Dis3.5.Jun.matrix <- as.matrix(cbind(SumDist3.5.Jun, Dis3.5Pop))
+Dis3.5.Jun.CI95 <- epi.conf(Dis3.5.Jun.matrix, ctype = "inc.risk", method = "exact", TotalRes.ATL, design = 1,
+                            conf.level = 0.95)
+#Dis 3-5 Jul
+Dis3.5.Jul.matrix <- as.matrix(cbind(SumDist3.5.Jul, Dis3.5Pop))
+Dis3.5.Jul.CI95 <- epi.conf(Dis3.5.Jul.matrix, ctype = "inc.risk", method = "exact", TotalRes.ATL, design = 1,
+                            conf.level = 0.95)
+#Dis 3-5 Aug
+Dis3.5.Aug.matrix <- as.matrix(cbind(SumDist3.5.Aug, Dis3.5Pop))
+Dis3.5.Aug.CI95 <- epi.conf(Dis3.5.Aug.matrix, ctype = "inc.risk", method = "exact", TotalRes.ATL, design = 1,
+                            conf.level = 0.95)
+#Dis 3-5 Sept
+Dis3.5.Sept.matrix <- as.matrix(cbind(SumDist3.5.Sept, Dis3.5Pop))
+Dis3.5.Sept.CI95 <- epi.conf(Dis3.5.Sept.matrix, ctype = "inc.risk", method = "exact", TotalRes.ATL, design = 1,
+                             conf.level = 0.95)
+
+Dis3.5.All.CI95 <- cbind(Dis3.5.Dec.CI95, Dis3.5.Jan.CI95,Dis3.5.Feb.CI95, Dis3.5.Mar.CI95,Dis3.5.Apr.CI95, 
+                         Dis3.5.May.CI95, Dis3.5.Jun.CI95,Dis3.5.Jul.CI95, Dis3.5.Aug.CI95,Dis3.5.Sept.CI95)*1000
+colnames(Dis3.5.All.CI95) <- c("Dec","l","u","Jan","l","u","Feb","l","u","Mar","l","u","Apr","l","u",
+                               "May","l","u","Jun","l","u","Jul","l","u","Aug","l","u","Sept","l","u")
+
+
+
+All.Incid.95CI <- rbind(Dis3.1.All.CI95, Dis3.2.All.CI95, Dis3.3.All.CI95, Dis3.4.All.CI95, Dis3.5.All.CI95)
+rownames(All.Incid.95CI) <- c("District 3-1","District 3-2","District 3-3","District 3-4","District 3-5")
+All.Incid.95CI.rounded <- round(All.Incid.95CI, digits = 2)
+```
+
+#### __Table 1:__ Incidence(95% CI) of Vaccination per 1000 persons Over 10 Months
+| __Health Districts__  | __Months__  |                    |                   |                      |                      |
+|:---              |              ---:|                ---:|               ---:|                  ---:|                  ---:|
+|                  |        __Dec'20__|          __Jan'21__|         __Feb'21__|            __Mar'21__|            __Apr'21__|
+| __District 3-1__ | 11.05(10.84,11.27)| 70.03(69.50,70.56)| 40.61(40.20,41.03)| 163.75(162.98,164.52)| 127.72(127.02,128.41)|
+| __District 3-2__ | 12.27(12.05,12.48)| 65.39(64.92,65.88)| 48.1w(47.71,48.54)| 184.78(184.03,185.54)| 130.88(130.23,131.53)| 
+| __District 3-3__ |    4.79(4.54,5.06)| 30.30(29.67,30.94)| 31.02(30.38,31.67)| 105.61(104.48,106.76)| 102.99(101.86,104.13)|
+| __District 3-4__ |    9.14(8.95,9.34)| 50.32(49.87,50.78)| 43.08(42.67,43.50)| 160.83(160.07,161.59)| 135.89(135.18,136.60)|
+| __District 3-5__ | 11.22(11.01,11.44)| 58.25(57.78,58.73)| 46.13(45.70,46.55)| 154.59(153.86,155.32)| 114.22(113.58,114.87)|
+|                  |                   |                   |                   |                      |                     |
+|                  |         __May'21__|         __Jun'21__|         __Jul'21__|            __Aug'21__|          __Sept'21__|
+| __District 3-1__ | 55.35(54.88,55.83)| 26.56(26.23,26.90)| 28.92(28.57,29.27)|    41.03(40.61,41.44)|	  21.57(21.27,21.87)|
+| __District 3-2__ | 55.25(54.81,55.69)| 25.32(25.02,25.63)| 26.07(25.76,26.38)|    36.90(36.53,37.26)|   19.88(19.61,20.15)|
+| __District 3-3__ | 51.33(50.52,52.16)| 29.03(28.41,29.66)| 32.43(31.77,33.09)|    47.46(46.67,48.25)|	  30.33(29.70,30.97)|
+| __District 3-4__ | 61.49(60.99,61.99)| 32.30(31.93,32.66)| 31.55(31.19,31.91)|    41.17(40.76,41.58)|	  21.83(21.53,22.13)|
+| __District 3-5__ | 53.43(52.98,53.89)| 27.93(27.60,28.27)| 29.00(28.67,29.35)|    40.98(40.58,41.38)|   22.67(22.37,22.97)|
+  
+    
+  In the five health districts inspected in this study, I compared the number of vaccinations between females and males. The percentage of vaccination between the two sexes is shown in Graph 2, comparing the five health districts. In this graph, females appear to be more likely to have received at least one vaccine dose than males in all districts. The ratio between males and females in each health district is roughly even between females and males, with females outnumbering males in all districts. District 3-3 is the only one not to have more than 50% of females or males vaccinated with at least one vaccine dose of the five health districts. The next task in this study was to test the hypothesis if there is a relationship between one's sex and getting at least one vaccine dose for COVID-19. Each of the five health districts in the Atlanta area was analyzed, and the link between gender and vaccine status was calculated. Several chi-squared tests and their statistics for each health district are displayed in Table 2, and these results show there is a statistically significant relationship between the two variables. From the results obtained, we would reject the null hypotheses and see evidence that women are more likely to get at least one vaccine than men within each group. It is important to note that it is not possible to conclude that the county the individual comes from influences if they get vaccinated in health Districts 3-1 and 3-4, each containing more than one county in the Atlanta area.  
+
+#### __Graph 2:__
+```{r Vaccination diff in percentage bw Sexes, echo=FALSE}
+
+ggplot(ATLDSex.colrename, aes(x=DISTRICT, y=PCTCUMPVAX, fill=SEX)) + 
+  geom_bar(position = "dodge",stat = "identity") +
+  theme(plot.title.position = "plot") +
+  labs(title = "Percentage of each Sex Vaccinated at least Once",
+       subtitle = "Health Districts surrounding Atlanta",
+       x = "Districts",
+       y = "Percentage of Sex") +
+  scale_fill_manual("legend", values = c("Female" = "#CC6677", "Male" = "#88CCEE")) 
+  
+```
+
+```{r X-squared table for independence Code, echo=FALSE}
+#chi square test for District 3-1
+Dis3.1.1 <- ATLDSex.colrename %>%
+  filter(DISTRICT %in% "District 3-1")
+Dis3.1.1 <- Dis3.1.1 %>%
+  select(c(PERSONVAX,pop_unvaxed))
+Dis3.1.1.chiX2<-chisq.test(Dis3.1.1)
+
+
+ascol.Dis3.1.1.chiX2 <- do.call(cbind,Dis3.1.1.chiX2)
+District.3.1<-ascol.Dis3.1.1.chiX2[1,1:3]
+
+#chi square test for District 3-2
+Dis3.2.1 <- ATLDSex.colrename %>%
+  filter(DISTRICT %in% c("District 3-2"))
+Dis3.2.1 <- Dis3.2.1 %>%
+  select(c(PERSONVAX,pop_unvaxed))
+Dis3.2.1.chiX2<-chisq.test(Dis3.2.1)
+
+
+ascol.Dis3.2.1.chiX2 <- do.call(cbind,Dis3.2.1.chiX2)
+District.3.2<-ascol.Dis3.2.1.chiX2[1,1:3]
+
+#chi square test for District 3-3
+Dis3.3.1 <- ATLDSex.colrename %>%
+  filter(DISTRICT %in% "District 3-3")
+Dis3.3.1 <- Dis3.3.1 %>% 
+  select(c(PERSONVAX,pop_unvaxed))
+Dis3.3.1.chiX2<-chisq.test(Dis3.3.1)
+
+
+ascol.Dis3.3.1.chiX2 <- do.call(cbind,Dis3.3.1.chiX2)
+District.3.3<-ascol.Dis3.3.1.chiX2[1,1:3]
+
+#chi square test for District 3-4   
+Dis3.4.1 <- ATLDSex.colrename %>%
+  filter(DISTRICT %in% c("District 3-4"))
+Dis3.4.1 <- Dis3.4.1 %>% 
+  select(c(PERSONVAX,pop_unvaxed))
+Dis3.4.1.chiX2<-chisq.test(Dis3.4.1)
+
+
+ascol.Dis3.4.1.chiX2 <- do.call(cbind,Dis3.4.1.chiX2)
+District.3.4<-ascol.Dis3.4.1.chiX2[1,1:3]
+
+#chi square test for District 3-5
+Dis3.5.1 <- ATLDSex.colrename %>%
+  filter(DISTRICT %in% "District 3-5")
+Dis3.5.1 <- Dis3.5.1 %>%
+  select(c(PERSONVAX,pop_unvaxed))
+Dis3.5.1.chiX2<-chisq.test(Dis3.5.1)
+
+
+ascol.Dis3.5.1.chiX2 <- do.call(cbind,Dis3.5.1.chiX2)
+District.3.5<-ascol.Dis3.5.1.chiX2[1,1:3]
+
+
+#Gives you the table that you want, only need to give columns titles
+District.3.1 <- as.integer(District.3.1)
+District.3.2 <- as.integer(District.3.2)
+District.3.3 <- as.integer(District.3.3)
+District.3.4 <- as.integer(District.3.4)
+District.3.5 <- as.integer(District.3.5)
+
+TableX2pV.2 <- rbind(District.3.1,District.3.2,District.3.3,District.3.4,
+                     District.3.5)
+colnames(TableX2pV.2) <- c("X squared", "Degrees of freedom", "p-value" )
+
+
+#Gives you the table that you want, only need to give columns titles
+District.3.1 <- as.integer(District.3.1)
+District.3.2 <- as.integer(District.3.2)
+District.3.3 <- as.integer(District.3.3)
+District.3.4 <- as.integer(District.3.4)
+District.3.5 <- as.integer(District.3.5)
+
+TableX2pV.2 <- rbind(District.3.1,District.3.2,District.3.3,District.3.4,
+                   District.3.5)
+colnames(TableX2pV.2) <- c("X squared", "Degrees of freedom", "p-value" )
+
+
+```
+#### __Table 2:__ Independence between both Sexes in Vaccination
+__Health Districts__  |        _X^2^_ |   _df_  | _p-value<.05_ |      
+:---                  |           ---:|     ---:|           ---:| 
+__District 3-1__      |           9611|        3|      < 2.2e-16|        
+__District 3-2__      |           1595|        1|      < 2.2e-16|        
+__District 3-3__      |           1238|        1|      < 2.2e-16|        
+__District 3-4__      |          12282|        5|      < 2.2e-16|        
+__District 3-5__      |           3043|        1|      < 2.2e-16|        
+
+  
+  When the COVID-19 vaccine was first announced, many were worried about a low turnout of women who report more vaccine hesitancy than men. However, with recent data and the data presented in this study, more women are getting vaccinated. There are several theories for the gender gap, from early access, traditional masculinity, and health behaviors. Women in the early access groups make up more of those 65 and older and more than 3/4 of the health care and education workforce. Men tend to seek medical care less often, use more harmful substances, and conform to traditionally masculine norms, culminating in poor health decisions. Women are more likely to make health care decisions for themselves and their families than men are (*7,8*).
+
+### Conclusion:
+   This study describes the incidence of receiving at least one vaccine between females and males in Atlanta's five health districts. There was a steep peak in vaccinations in March and April, followed by a decrease in vaccinations until mid-July into August, having a slight increase due to concerns about the Delta Variant of COVID-19's greater transmissibility and virulence. Incidence of vaccination is roughly consistent between all health districts, with District 3-3 initially lagging but caught up in the latter months. The relationship between one's sex and having at least one vaccine was analyzed using the Chi-square test of independence. The results of the test showed that there is a statistically significant relationship between the two variables. It appears that women are more likely than men to get the COVID-19 vaccine. Even now, with eligibility open to all, the gap has continued, with more women getting the vaccine than men. Future studies should analyze the gender gap in vaccination of all Georgia health districts and promote the importance of acquiring the COVID-19 vaccine to protect oneself and others around them.  
+
+### References:
+
+1.	All 50 states now have expanded or will expand Covid vaccine eligibility to everyone 16 and up. (2021).  April 06, 2021. https://www.cnn.com/2021/03/30/health/states-covid-19-vaccine-eligibility-bn/index.html
+2.	Public Health Districts.  https://dph.georgia.gov/about-dph/contact-dph/public-health-districts
+3.	COVID-19 Status Report.  https://georgiadph.maps.arcgis.com/sharing/rest/content/items/e7378d64d3fa4bc2a67b2ea40e4748b0/data
+4.	First Doses of COVID Vaccine Arrive in Georgia.  https://dph.georgia.gov/press-releases/2020-12-14/first-doses-covid-vaccine-arrive-georgia
+5.	GA DPH Vaccine Distribution Dasboard.  https://georgiadph.maps.arcgis.com/sharing/rest/content/items/e7378d64d3fa4bc2a67b2ea40e4748b0/data
+6.	What You Need to Know About the Delta Variant.  https://www.froedtert.com/stories/what-you-need-know-about-delta-variant
+7.	Why Is There Such A Gender Gap In COVID-19 Vaccination Rates? (2021).  https://fivethirtyeight.com/features/why-is-there-such-a-gender-gap-in-covid-19-vaccination-rates/
+8.	The Gender Vaccine Gap: More Women Than Men Are Getting Covid Shots.  https://khn.org/news/article/gender-vaccine-gap-more-women-than-men-vaccinated-against-covid/
+
+
+    
